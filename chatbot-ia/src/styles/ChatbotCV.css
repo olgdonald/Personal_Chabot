@@ -5,14 +5,27 @@ body, html {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.chat-container {
+/* .chat-container {
   max-width: 1024px;
   margin: 0 auto;
   height: calc(100vh - 100px);
   display: flex;
   flex-direction: column;
   transition: all 0.3s ease;
+} */
+
+.chat-container {
+  max-width: 1024px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto; /* prend tout l’espace disponible */
+  transition: all 0.3s ease;
+  border-radius: 10%;
+  min-height: 400px; /* pour éviter que ça devienne trop petit */
 }
+
 
 .header {
   background-color: white;
@@ -131,6 +144,7 @@ body, html {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-y: auto; padding: 1rem; scroll-behavior: smooth;
 }
 
 /* Actions du header */
