@@ -10,7 +10,14 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Configuration
 app = Flask(__name__)
-CORS(app, origins=["*"])  # En production, spécifiez vos domaines
+# CORS(app, origins=["*"])  # En local
+CORS(
+    app,
+    origins=["https://personal-chabot-frontend.onrender.com"],  # Frontend Render uniquement
+    methods=["GET", "POST", "OPTIONS"],  # méthodes autorisées
+    allow_headers=["Content-Type", "Authorization"],  # headers autorisés
+    supports_credentials=True
+)
 
 # Charger les variables d'environnement
 load_dotenv()
