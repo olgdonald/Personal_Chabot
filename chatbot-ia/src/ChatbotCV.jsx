@@ -46,6 +46,7 @@ export default function ChatbotCV() {
   const [isMinimized, setIsMinimized] = useState(false);
   const [sessionId] = useState(() => Math.random().toString(36).substr(2, 9));
   const [error, setError] = useState(null);
+  const [textareaHeight, setTextareaHeight] = useState('44px');
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -54,6 +55,42 @@ export default function ChatbotCV() {
   // Configuration de l'API (à adapter selon votre déploiement)
   // const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
   const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+  // Fonction pour ajuster automatiquement la hauteur
+  const adjustTextareaHeight = (textarea) => {
+    if (!textarea) return;
+    
+    // Reset height to get accurate scrollHeight
+    textarea.style.height = 'auto';
+    const maxHeight = window.innerWidth <= 768 ? 140 : 120; // Plus haut sur mobile
+    const minHeight = window.innerWidth <= 768 ? 44 : 48;
+    
+    let newHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
+    textarea.style.height = newHeight + 'px';
+    setTextareaHeight(newHeight + 'px');
+    
+    // Ajouter classe pour animation container si nécessaire
+    const inputArea = document.querySelector('.input-area');
+    if (newHeight > minHeight + 10) {
+      inputArea?.classList.add('expanded');
+    } else {
+      inputArea?.classList.remove('expanded');
+    }
+  };
+
+  // Ajouter une fonction pour reset la hauteur après envoi
+  const resetTextareaHeight = () => {
+    const textarea = document.querySelector('.input-wrapper textarea');
+    if (textarea) {
+      const minHeight = window.innerWidth <= 768 ? 44 : 48;
+      textarea.style.height = minHeight + 'px';
+      setTextareaHeight(minHeight + 'px');
+      
+      // Retirer classe expanded
+      const inputArea = document.querySelector('.input-area');
+      inputArea?.classList.remove('expanded');
+    }
+  };
 
   const sendMessageToAPI = async (message) => {
     try {
@@ -80,6 +117,7 @@ export default function ChatbotCV() {
     }
   };
 
+  // Modifier handleSendMessage pour reset la hauteur
   const handleSendMessage = async () => {
     if (inputMessage.trim() === '' || isTyping) return;
 
@@ -88,6 +126,10 @@ export default function ChatbotCV() {
     
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
+    
+    // Reset la hauteur du textarea
+    resetTextareaHeight();
+    
     setRobotState('thinking');
     setIsTyping(true);
     setError(null);
@@ -116,11 +158,33 @@ export default function ChatbotCV() {
       };
       setMessages(prev => [...prev, errorMessage]);
     }
+
+    // Remettre les suggestions après envoi
+    setTimeout(() => {
+      const suggestionsEl = document.querySelector('.suggestions');
+      if (suggestionsEl) {
+        suggestionsEl.classList.remove('typing');
+      }
+    }, 100);
   };
 
+  // Modifier handleInputChange
   const handleInputChange = (e) => {
     setInputMessage(e.target.value);
     setRobotState(e.target.value.trim() !== '' ? 'listening' : 'idle');
+    
+    // Ajuster la hauteur automatiquement
+    adjustTextareaHeight(e.target);
+    
+    // Gérer l'affichage des suggestions
+    const suggestionsEl = document.querySelector('.suggestions');
+    if (suggestionsEl) {
+      if (e.target.value.trim() !== '') {
+        suggestionsEl.classList.add('typing');
+      } else {
+        suggestionsEl.classList.remove('typing');
+      }
+    }
   };
 
   const handleKeyPress = (e) => { 
@@ -160,6 +224,19 @@ export default function ChatbotCV() {
     }
   };
 
+  // Ajouter un useEffect pour gérer le resize de fenêtre
+  useEffect(() => {
+    const handleResize = () => {
+      const textarea = document.querySelector('.input-wrapper textarea');
+      if (textarea && inputMessage) {
+        adjustTextareaHeight(textarea);
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [inputMessage]);
+
   return (
     <div className="chatbot-wrapper">
       <header className="header">
@@ -174,7 +251,7 @@ export default function ChatbotCV() {
               <p className="subtitle">Découvrez le profil de Jean Donald Olinga de manière interactive</p>
             </div>
           </div>
-          <div className="header-actions">
+          {/* <div className="header-actions">
             <button 
               onClick={resetConversation} 
               className="reset-button"
@@ -182,7 +259,7 @@ export default function ChatbotCV() {
             >
               🔄
             </button>
-          </div>
+          </div> */}
         </div>
       </header>
 
@@ -223,7 +300,11 @@ export default function ChatbotCV() {
                     placeholder="Posez-moi une question sur le CV de Jean Donald..." 
                     disabled={isTyping}
                     rows="1"
-                    style={{resize: 'none', minHeight: '40px'}}
+                    style={{
+                      resize: 'none', 
+                      height: textareaHeight,
+                      minHeight: window.innerWidth <= 768 ? '44px' : '48px'
+                    }}
                   />
                 </div>
                 <button 
