@@ -8,20 +8,26 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Configuration
-app = Flask(__name__)
-# CORS(app, origins=["*"])  # En local
-CORS(
-    app,
-    origins=["https://personal-chabot-frontend.onrender.com"],  # Frontend Render uniquement
-    methods=["GET", "POST", "OPTIONS"],  # méthodes autorisées
-    allow_headers=["Content-Type", "Authorization"],  # headers autorisés
-    supports_credentials=True
-)
-
 # Charger les variables d'environnement
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+# URL(s) du frontend autorisé(s) a appeler cette API.
+# Definir la variable FRONTEND_URL sur Railway (Settings > Variables du service backend)
+# avec l'URL publique exacte du service frontend, ex: https://mon-frontend.up.railway.app
+# Plusieurs origines peuvent etre listees, separees par une virgule.
+frontend_urls_env = os.getenv("FRONTEND_URL", "http://localhost:5173")
+ALLOWED_ORIGINS = [url.strip() for url in frontend_urls_env.split(",") if url.strip()]
+
+# Configuration
+app = Flask(__name__)
+CORS(
+    app,
+    origins=ALLOWED_ORIGINS,
+    methods=["GET", "POST", "OPTIONS"],  # methodes autorisees
+    allow_headers=["Content-Type", "Authorization"],  # headers autorises
+    supports_credentials=True
+)
 
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY manquant dans les variables d'environnement")
