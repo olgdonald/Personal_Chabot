@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
+from rag.retriever import Retriever
 
 # Charger les variables d'environnement
 load_dotenv()
@@ -32,64 +33,61 @@ CORS(
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_API_KEY manquant dans les variables d'environnement")
 
-# CV/Bio de Jean Donald Olinga
-cv_text = """
-Tu es l'assistant personnel de Jean Donald Olinga. Voici toutes ses informations professionnelles :
+# ---------------------------------------------------------------------
+# RAG — Chargement du moteur de recherche (retriever)
+# ---------------------------------------------------------------------
+# Le retriever charge rag/index.json (généré par "python -m rag.ingest")
+# UNE SEULE FOIS au démarrage du serveur. Le garder en mémoire est bien
+# plus rapide que de relire/recalculer les embeddings à chaque question.
+try:
+    retriever = Retriever()
+    print(f"RAG prêt : {len(retriever.chunks)} chunks chargés depuis rag/index.json")
+except FileNotFoundError:
+    raise ValueError(
+        "rag/index.json introuvable. Lance d'abord 'python -m rag.ingest' "
+        "pour générer l'index de connaissances avant de démarrer le serveur."
+    )
 
-# Jean Donald Olinga, élève-ingénieur en informatique à l'UCAC-ICAM, actuellement en spécialisation vers l'intelligence artificielle, passionné par la création de solutions innovantes qui combinent IA, développement logiciel et sens pratique.
+# Instructions système : le "mode d'emploi" donné à Gemini à chaque requête.
+# Différence clé avec l'ancienne version : on N'Y MET PLUS le CV entier.
+# Seul le contexte pertinent, retrouvé par le retriever, est inséré dans
+# {context} au moment de chaque requête (voir la route /api/chat plus bas).
+SYSTEM_INSTRUCTIONS = """Tu es l'assistant personnel de Jean Donald Olinga, un élève-ingénieur en informatique spécialisé en intelligence artificielle.
 
-# Profil :
-- Élève-ingénieur IT avec de solides bases en développement web, mobile et logiciel.
-- Compétences en data engineering, modélisation IA et automatisation intelligente.
-- Curieux, adaptable, orienté résultats et toujours prêt à relever de nouveaux défis.
+Voici les informations de son profil qui sont pertinentes pour répondre à la question posée :
+---
+{context}
+---
 
-# Formation :
-- 2022 – 2025 : Formation d'ingénieur en informatique à l'UCAC-ICAM (Douala, Cameroun)
-- Français : C1 courant
-- Anglais : B2 avancé (niveau attesté par TOEIC)
-
-# Expériences :
-- **Legion Web** (Avril – Juin 2024) : Développement d'une application immobilière avec chatbot intégré pour faciliter la recherche et la gestion de biens.
-- **Les Colombes d'Or** (Juillet 2024) : Réalisation du site web de l'établissement.
-- **ABSA** (Septembre 2024) : Conception du site web de l'association.
-- **Gateway Force** (Décembre 2024 – Mars 2025) : Application santé avec IA de prédiction des maladies à partir de symptômes.
-
-# Projets personnels :
-- **ChatBot CV** : Assistant virtuel capable de présenter mon profil et mon parcours de manière interactive.
-- **Churn Prediction** : Modèle de prédiction du taux de désabonnement client (XGBoost) pour le secteur des télécommunications.
-
-# Compétences techniques :
-- **Développement web** : JavaScript, React, PHP, Node.js
-- **Développement mobile** : Flutter, Dart, Firebase
-- **Data Engineering** : Python, MySQL, MongoDB, Power BI
-- **Machine Learning / IA** : Python, Dialogflow, OpenCV, scikit-learn
-- **Outils & méthodes** : Git/GitHub, Docker, API REST, Figma
-
-# Certifications/certificat :
-- IBM Artificial Intelligence Fundamentals
-- Kaggle Intermediate Machine Learning
-- Google Cloud – Introduction to Generative AI
-- Test of English for International Communication (TOEIC)
-
-# Liens/contact :
-- GitHub : https://github.com/olgdonald
-- LinkedIn : http://www.linkedin.com/in/jean-donald-olinga-0851872a9
-- Telephone : +237 658057891
-- Email : jeanolinga3@mail.com
-
-# Centres d'intérêt :
-Basketball, dessin, échecs, lecture, esprit critique.
-
-Tu es un assistant amical et professionnel. Tu dois répondre uniquement à partir des informations ci-dessus, en les reformulant de manière claire, concise et engageante. Tes réponses doivent être lisibles et pas très longues. Tu répondras comme répondrait un véritable assistant humain (langage naturel). En cas de difficulte ou de maque d'information , propose toujours de contacter OLINGA JEAN a partir de ses contacts et liens que tu envera
+Consignes :
+- Réponds UNIQUEMENT à partir des informations ci-dessus. N'invente rien.
+- Si les informations ne permettent pas de répondre, dis-le simplement et propose de contacter Jean Donald directement (voir ses coordonnées si elles sont dans le contexte).
+- Réponds comme un véritable assistant humain : naturel, clair, concis (pas de réponse trop longue).
+- Adopte un ton amical et professionnel.
 """
 
 # Initialiser Gemini avec gestion d'erreurs
+#
+# Note d'ingénierie (3ème rencontre avec ce problème, et la plus édifiante) :
+# "gemini-2.5-flash" existe encore, mais Google a fermé son accès aux
+# NOUVEAUX comptes API (le tien). On passe donc à la génération Gemini 3,
+# avec "gemini-3.5-flash-lite" : le modèle stable (GA) le plus rapide et
+# le moins cher de la gamme actuelle. Très bien adapté à notre cas : on
+# ne demande pas un raisonnement complexe, juste de reformuler un
+# contexte déjà fourni par le RAG.
+#
+# thinking_level="low" : sur Gemini 3, on ne parle plus de "budget de
+# tokens" (thinking_budget, spécifique à Gemini 2.5) mais de "niveau"
+# (low / medium / high). Gemini 3 ne permet pas de désactiver entièrement
+# la réflexion, mais "low" la réduit au minimum : réponses plus rapides
+# et moins de tokens "invisibles" grignotés sur max_tokens.
 try:
     llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash",
+        model="gemini-3.5-flash-lite",
         google_api_key=GOOGLE_API_KEY,
         temperature=0.3,
-        max_tokens=500
+        max_tokens=800,
+        thinking_level="low"
     )
 except Exception as e:
     print(f"Erreur initialisation Gemini: {e}")
@@ -196,6 +194,37 @@ class RateLimiter:
 
 rate_limiter = RateLimiter()
 
+
+def extract_response_text(response) -> str:
+    """
+    Extrait le texte d'une réponse Gemini, quel que soit son format.
+
+    Depuis le passage à langchain-google-genai 4.x (nouveau SDK google-genai),
+    response.content peut être :
+    - une simple chaîne de caractères (ancien comportement), OU
+    - une LISTE de blocs, ex: [{"type": "text", "text": "..."}], qui permet
+      par exemple de distinguer du texte normal d'un appel d'outil.
+
+    On gère les deux cas pour que le code reste robuste même si Google fait
+    encore évoluer ce format plus tard.
+    """
+    content = response.content
+
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return "".join(parts).strip()
+
+    # Cas de secours, très improbable : on convertit simplement en texte.
+    return str(content).strip()
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     try:
@@ -227,9 +256,21 @@ def chat():
         
         # Récupérer l'historique de la conversation
         history = conversation_manager.get_history(session_id)
-        
-        # Construire le prompt avec l'historique
-        prompt = f"""{cv_text}
+
+        # ---- ETAPE RAG 1/2 : RECHERCHE (retrieval) ----
+        # On cherche, dans la base de connaissances, les chunks les plus
+        # pertinents par rapport à LA QUESTION (pas tout l'historique :
+        # on veut cibler ce que l'utilisateur demande maintenant).
+        relevant_chunks = retriever.search(user_message, top_k=3)
+        context_text = "\n\n".join(
+            f"### {chunk['title']}\n{chunk['text']}" for chunk in relevant_chunks
+        )
+
+        # ---- ETAPE RAG 2/2 : GENERATION AUGMENTEE ----
+        # Le prompt final ne contient plus TOUT le CV, seulement le contexte
+        # retrouvé ci-dessus + l'historique récent + la question. Un prompt
+        # plus court = réponse plus rapide, moins coûteuse et plus ciblée.
+        prompt = f"""{SYSTEM_INSTRUCTIONS.format(context=context_text)}
 
 === HISTORIQUE DE LA CONVERSATION ===
 {chr(10).join(history)}
@@ -239,7 +280,7 @@ Bot : """
         # Appel à l'API Gemini avec gestion d'erreurs
         try:
             response = llm.invoke(prompt)
-            bot_response = response.content.strip()
+            bot_response = extract_response_text(response)
             
             if not bot_response:
                 bot_response = "Désolé, je n'ai pas pu générer une réponse appropriée. Pouvez-vous reformuler votre question ?"
@@ -268,6 +309,7 @@ def health_check():
         'status': 'OK', 
         'message': 'API fonctionnelle',
         'gemini_available': llm is not None,
+        'rag_chunks_loaded': len(retriever.chunks),
         'stats': stats,
         'timestamp': datetime.now().isoformat()
     })
